@@ -1,0 +1,70 @@
+# configs/grpo_step.yaml
+# =======================
+# NeMo RL 步骤级 GRPO 配置（Edison 创新 #2）
+#
+# 关键改动（对比标准 trajectory-level GRPO）：
+#   group_size: 1          → 按单步分组
+#   use_transitions: true  → 启用状态转换训练
+#   reward_type: step_level→ 每步奖励
+#
+# 参考：NVIDIA NeMo RL 官方文档
+# https://github.com/NVIDIA-NeMo/RL/blob/main/docs/grpo.md
+
+trainer:
+  type: grpo
+
+grpo:
+  # ── Edison 创新 #2 核心配置 ──────────────────────────────────
+  # 标准 GRPO 按完整轨迹分组（group_size 条轨迹归一化）
+  # 步骤级 GRPO 按单步分组（同一步骤编号的 N 次 rollout 归一化）
+  group_size: 1                  # 单步分组
+  use_transitions: true          # 启用状态转换训练（不只看最终奖励）
+  reward_type: step_level        # 步级奖励信号
+  # ──────────────────────────────────────────────────────────────
+
+  # 标准 GRPO 超参数
+  clip_range: 0.2
+  kl_coef: 0.01
+  gamma: 1.0
+  gae_lambda: 1.0
+
+  # 上下文长度控制（Edison 创新 #1 的训练侧保障）
+  max_context_length: 8192       # 强制限制，防止溢出
+
+  # 采样配置
+  n_rollouts_per_prompt: 8       # G = 每步 8 次并行 rollout
+  temperature: 0.7
+  top_p: 0.9
+
+env:
+  name: ControlledNotebookEnv
+  # hide_old_env_states 由 ldp.ReActAgent 参数控制（见 notebook_agent.py）
+  max_steps: 30
+  docker_image: futurehouse/bixbench-env:v1.0
+  use_docker: true
+
+dataset:
+  name: bixbench_train
+  data_dir: data/bixbench/
+  split: train
+
+model:
+  name: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+  # 替代方案（显存不足时）：
+  # name: Qwen/Qwen2.5-7B-Instruct
+  # name: meta-llama/Meta-Llama-3.1-8B-Instruct
+
+training:
+  n_iterations: 200
+  capsules_per_iter: 4
+  n_parallel_rollouts: 8
+  eval_every: 20
+  learning_rate: 2.0e-5
+  gradient_accumulation_steps: 4
+  checkpoint_dir: checkpoints/
+
+logging:
+  wandb:
+    enabled: true
+    project: bixbench-grpo-step-level
+  log_dir: logs/
