@@ -18,7 +18,10 @@ dependencies = [
     #   uv pip install -e 'aviary/packages/aviary.notebook'
     # ldp - FutureHouse agent 框架
     #   uv pip install -e 'aviary/packages/ldp'
-    # bixbench - BixBench 数据集 + 评估
+    # data-analysis-crow (fhda) - FutureHouse 数据分析 crow 环境
+    #   git clone https://github.com/Future-House/data-analysis-crow.git
+    #   uv pip install -e data-analysis-crow/
+    # bixbench - BixBench 数据集 + 评估（可选，用于 BixBench eval）
     #   git clone https://github.com/Future-House/BixBench.git
     #   uv pip install -e BixBench/
 
@@ -28,6 +31,10 @@ dependencies = [
     "httpx>=0.27.0",
     "tqdm>=4.66.0",
     "rich>=13.7.0",
+
+    # HuggingFace datasets（用于加载 Nemotron 数据集）
+    "datasets>=2.18.0",
+    "huggingface-hub>=0.22.0",
 
     # Jupyter（本地 kernel，非 Docker 模式）
     "jupyter-client>=8.6.0",
@@ -59,6 +66,9 @@ train = [
     "peft>=0.10.0",
     "accelerate>=0.27.0",
     "wandb>=0.16.0",
+    # verifiers — GRPO training framework
+    # pip install 'verifiers[all]'
+    "verifiers>=0.1.0",
 ]
 
 [tool.setuptools.packages.find]

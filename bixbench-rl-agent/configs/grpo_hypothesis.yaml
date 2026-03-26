@@ -1,0 +1,107 @@
+# configs/grpo_hypothesis.yaml
+# =============================
+# Step-level GRPO training config for hypothesis-testing tasks.
+#
+# Dataset  : nvidia/Nemotron-RL-bixbench_hypothesis (HuggingFace)
+# Env      : data-analysis-crow (DataAnalysisEnv / fhda)
+# Rewards  : AnalysisProtocol + StepRubric (6 verifiers, weights sum to 1.0)
+# Trainer  : Step-level GRPO (StepLevelGRPOGrouper) / NeMo RL / verifiers
+#
+# Protocol step weights (must sum to 1.0):
+#   hypothesis_understanding  0.10
+#   data_loading              0.15
+#   exploratory_analysis      0.20
+#   statistical_testing       0.25
+#   interpretation            0.15
+#   answer_submission         0.15
+#                             ----
+#                             1.00
+
+# ── Dataset ────────────────────────────────────────────────────────────────
+dataset:
+  hf_id: nvidia/Nemotron-RL-bixbench_hypothesis
+  # Optional: path to locally-synced capsule data files
+  # (needed when not using the hosted DataRepo from data-analysis-crow)
+  capsule_data_dir: null
+  train_split: train
+  val_split: validation
+
+# ── Execution environment ──────────────────────────────────────────────────
+env:
+  name: CrowRLEnv
+  # Docker image bundling Python + R + bioinformatics packages
+  docker_image: futurehouse/bixbench:aviary-notebook-env
+  use_docker: true
+  max_steps: 30
+
+# ── LLM / rollout model ────────────────────────────────────────────────────
+model:
+  name: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+  # For local vLLM server:
+  # base_url: http://localhost:10240/v1
+  #
+  # Smaller alternatives (less GPU memory):
+  # name: Qwen/Qwen2.5-7B-Instruct
+  # name: meta-llama/Meta-Llama-3.1-8B-Instruct
+
+# ── GRPO hyperparameters ───────────────────────────────────────────────────
+grpo:
+  # ── Step-level GRPO (core innovation) ──────────────────────────────────
+  # group_size: G parallel rollouts per (capsule, step) for advantage normalisation.
+  # With step-level grouping each protocol step contributes independently to
+  # the advantage estimate, giving 6× denser gradient signal vs trajectory-level.
+  group_size: 8
+  use_step_level: true       # enable StepLevelGRPOGrouper
+  # ────────────────────────────────────────────────────────────────────────
+
+  # Standard PPO / GRPO knobs
+  clip_range: 0.2
+  kl_coef: 0.01              # beta — KL penalty weight
+  gamma: 1.0
+  gae_lambda: 1.0
+  temperature: 0.7
+  top_p: 0.9
+  max_new_tokens: 2048
+  max_context_length: 32768
+
+# ── Training schedule ──────────────────────────────────────────────────────
+training:
+  n_iterations: 200
+  samples_per_iter: 4        # number of distinct hypothesis problems per iter
+  n_parallel_rollouts: 8     # G: parallel rollouts per problem (= group_size)
+  eval_every: 20
+  learning_rate: 2.0e-5
+  gradient_accumulation_steps: 4
+  batch_size: 1
+  n_epochs: 1
+  checkpoint_dir: checkpoints/hypothesis/
+
+# ── Protocol reward weights (informational — set in AnalysisProtocol) ─────
+protocol:
+  name: hypothesis_testing
+  steps:
+    - name: hypothesis_understanding
+      weight: 0.10
+    - name: data_loading
+      weight: 0.15
+    - name: exploratory_analysis
+      weight: 0.20
+    - name: statistical_testing
+      weight: 0.25
+    - name: interpretation
+      weight: 0.15
+    - name: answer_submission
+      weight: 0.15
+
+# ── NeMo RL integration (used when running with ng_run) ───────────────────
+nemo_rl:
+  reward_type: step_level
+  use_transitions: true
+
+# ── Logging ───────────────────────────────────────────────────────────────
+logging:
+  wandb:
+    enabled: true
+    project: nemotron-bixbench-hypothesis-grpo
+    entity: null              # set your W&B entity
+  log_dir: logs/hypothesis/
