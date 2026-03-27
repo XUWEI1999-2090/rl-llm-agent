@@ -67,7 +67,7 @@ fi
 echo "[4/9] 安装 FutureHouse Aviary..."
 cd aviary
 # 注意：必须从源码安装，PyPI 上的 'aviary' 是 NASA 的飞机设计工具
-uv pip install -e "packages/aviary[notebook]"
+uv pip install -e ".[notebook]"
 uv pip install -e "packages/aviary.notebook"
 # ldp（aviary 的 agent 框架）
 uv pip install -e "packages/ldp"
