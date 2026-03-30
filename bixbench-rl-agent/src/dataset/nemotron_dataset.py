@@ -169,6 +169,47 @@ class NemotronHypothesisDataset:
         """Return the underlying HuggingFace Dataset (or None if not loaded)."""
         return self._hf_dataset
 
+    def split_train_val(
+        self,
+        val_fraction: float = 0.2,
+        seed: int = 42,
+    ) -> tuple["_SubsetDataset", "_SubsetDataset"]:
+        """Return deterministic (train_subset, val_subset) from this dataset.
+
+        This is needed when the HF dataset only has a 'train' split (e.g. on
+        Colab where `split='validation'` raises an unknown-split error).
+
+        Args:
+            val_fraction: Fraction of samples to hold out for validation (0–1).
+            seed: Random seed for reproducible splits.
+
+        Returns:
+            A (train_subset, val_subset) tuple of _SubsetDataset objects that
+            each support __len__, __getitem__, prepare_work_dir, and expose
+            capsule_data_dir.
+        """
+        import random
+
+        n = len(self._samples)
+        rng = random.Random(seed)
+        indices = list(range(n))
+        rng.shuffle(indices)
+
+        n_val = max(1, int(val_fraction * n)) if n > 1 else 0
+        val_indices = indices[:n_val]
+        train_indices = indices[n_val:]
+
+        train_sub = _SubsetDataset(self, train_indices)
+        val_sub = _SubsetDataset(self, val_indices)
+        logger.info(
+            "split_train_val: %d train, %d val (val_fraction=%.2f, seed=%d)",
+            len(train_sub),
+            len(val_sub),
+            val_fraction,
+            seed,
+        )
+        return train_sub, val_sub
+
     def get_capsule_dir(self, sample: HypothesisSample) -> Path | None:
         """Return the local directory for the capsule's data files, if available."""
         if self.capsule_data_dir is None:
@@ -198,3 +239,42 @@ class NemotronHypothesisDataset:
                 else:
                     shutil.copy(item, tmp)
         return tmp
+
+
+class _SubsetDataset:
+    """A lightweight index-based view over a NemotronHypothesisDataset.
+
+    Created by NemotronHypothesisDataset.split_train_val() so callers can
+    treat train and validation subsets interchangeably with the full dataset.
+    Supports __len__, __getitem__, prepare_work_dir, and exposes capsule_data_dir.
+    """
+
+    def __init__(self, base: "NemotronHypothesisDataset", indices: list[int]) -> None:
+        self._base = base
+        self._indices = indices
+        # Expose capsule_data_dir so CrowDataset and other consumers can read it
+        self.capsule_data_dir = base.capsule_data_dir
+
+    def __len__(self) -> int:
+        return len(self._indices)
+
+    def __getitem__(self, i: int) -> HypothesisSample:
+        return self._base[self._indices[i]]
+
+    def __iter__(self) -> Iterator[HypothesisSample]:
+        for i in self._indices:
+            yield self._base[i]
+
+    def prepare_work_dir(self, sample: HypothesisSample, base_tmp: Path | None = None) -> Path:
+        """Copy capsule data files for *sample* to a fresh temp directory.
+
+        Args:
+            sample: The HypothesisSample whose data files should be staged.
+            base_tmp: Optional parent directory for the temp dir; uses the
+                system default when None.
+
+        Returns:
+            Path to the newly created temporary directory containing the
+            staged capsule data files.
+        """
+        return self._base.prepare_work_dir(sample, base_tmp=base_tmp)

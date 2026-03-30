@@ -24,25 +24,27 @@ dataset:
   # (needed when not using the hosted DataRepo from data-analysis-crow)
   capsule_data_dir: null
   train_split: train
-  val_split: validation
+  # val_split is intentionally omitted — a deterministic 20 % slice of the
+  # train split is used instead, because the HF dataset only provides 'train'.
+  val_fraction: 0.2   # fraction of train examples held out for validation
+  split_seed: 42      # seed for reproducible train/val split
 
 # ── Execution environment ──────────────────────────────────────────────────
 env:
   name: CrowRLEnv
   # Docker image bundling Python + R + bioinformatics packages
   docker_image: futurehouse/bixbench:aviary-notebook-env
-  use_docker: true
+  # NOTE: set to false for Colab / environments without a Docker daemon
+  use_docker: false
   max_steps: 30
 
 # ── LLM / rollout model ────────────────────────────────────────────────────
 model:
-  name: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
-  # For local vLLM server:
-  # base_url: http://localhost:10240/v1
-  #
-  # Smaller alternatives (less GPU memory):
-  # name: Qwen/Qwen2.5-7B-Instruct
-  # name: meta-llama/Meta-Llama-3.1-8B-Instruct
+  # Use gpt-4o-mini via an OpenAI-compatible endpoint (e.g. chatanywhere).
+  # The training script will auto-prefix "openai/" if no provider prefix is
+  # present, which is required by LiteLLM.
+  name: gpt-4o-mini
+  base_url: https://api.chatanywhere.tech/v1/
 
 # ── GRPO hyperparameters ───────────────────────────────────────────────────
 grpo:

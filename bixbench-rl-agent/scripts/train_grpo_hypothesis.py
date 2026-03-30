@@ -200,17 +200,23 @@ async def train(config: dict) -> None:
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Dataset ──────────────────────────────────────────────────────────────
-    capsule_data_dir = config.get("dataset", {}).get("capsule_data_dir")
-    train_ds = NemotronHypothesisDataset(
-        split="train",
+    ds_cfg = config.get("dataset", {})
+    capsule_data_dir = ds_cfg.get("capsule_data_dir")
+    val_fraction = float(ds_cfg.get("val_fraction", 0.2))
+    split_seed = int(ds_cfg.get("split_seed", 42))
+
+    # Load only the train split — the HF dataset may not have a 'validation'
+    # split (e.g. on Colab).  We carve out a deterministic val subset instead.
+    full_ds = NemotronHypothesisDataset(
+        split=ds_cfg.get("train_split", "train"),
         capsule_data_dir=capsule_data_dir,
     )
-    val_ds = NemotronHypothesisDataset(
-        split="validation",
-        capsule_data_dir=capsule_data_dir,
+    train_ds, val_ds = full_ds.split_train_val(
+        val_fraction=val_fraction, seed=split_seed
     )
     logger.info(
-        "Dataset: %d train, %d val samples", len(train_ds), len(val_ds)
+        "Dataset: %d train, %d val samples (split from train, val_fraction=%.2f)",
+        len(train_ds), len(val_ds), val_fraction,
     )
 
     # ── Environment ──────────────────────────────────────────────────────────
@@ -224,8 +230,16 @@ async def train(config: dict) -> None:
 
     # ── Rollout agent ─────────────────────────────────────────────────────────
     model_cfg = config.get("model", {})
+    model_name = model_cfg.get("name", "gpt-4o")
+    # LiteLLM requires a provider prefix (e.g. "openai/gpt-4o-mini").
+    # If the name contains no "/" we assume it is an OpenAI-compatible model
+    # and prepend "openai/" automatically — this covers Colab / chatanywhere
+    # endpoints where the user just writes the bare model name.
+    if "/" not in model_name:
+        model_name = f"openai/{model_name}"
+        logger.info("Model name normalized to '%s' for LiteLLM provider routing", model_name)
     agent = make_bixbench_agent(
-        model_name=model_cfg.get("name", "gpt-4o"),
+        model_name=model_name,
         model_base_url=model_cfg.get("base_url"),
         temperature=config.get("grpo", {}).get("temperature", 0.7),
     )
@@ -359,9 +373,21 @@ def build_verifiers_env(config: dict):
     from src.verifiers.rubric import StepRubric
 
     rubric_obj = StepRubric(protocol=HYPOTHESIS_PROTOCOL)
-    capsule_data_dir = config.get("dataset", {}).get("capsule_data_dir")
-    train_ds = NemotronHypothesisDataset(split="train", capsule_data_dir=capsule_data_dir)
-    val_ds = NemotronHypothesisDataset(split="validation", capsule_data_dir=capsule_data_dir)
+    ds_cfg = config.get("dataset", {})
+    capsule_data_dir = ds_cfg.get("capsule_data_dir")
+
+    # Load only the train split and carve out val — same logic as train() so
+    # that --use-verifiers-trainer doesn't attempt to load the missing
+    # 'validation' split on Colab / HF datasets that only have 'train'.
+    full_ds = NemotronHypothesisDataset(
+        split=ds_cfg.get("train_split", "train"),
+        capsule_data_dir=capsule_data_dir,
+    )
+    val_fraction = float(ds_cfg.get("val_fraction", 0.2))
+    split_seed = int(ds_cfg.get("split_seed", 42))
+    train_ds, val_ds = full_ds.split_train_val(
+        val_fraction=val_fraction, seed=split_seed
+    )
 
     def to_hf(ds: NemotronHypothesisDataset) -> HFDataset:
         return HFDataset.from_list(
