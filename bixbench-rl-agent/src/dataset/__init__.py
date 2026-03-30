@@ -1,3 +1,3 @@
-from .nemotron_dataset import NemotronHypothesisDataset, HypothesisSample
+from .nemotron_dataset import NemotronHypothesisDataset, HypothesisSample, SubsetNemotronDataset
 
-__all__ = ["NemotronHypothesisDataset", "HypothesisSample"]
+__all__ = ["NemotronHypothesisDataset", "HypothesisSample", "SubsetNemotronDataset"]

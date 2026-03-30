@@ -17,6 +17,7 @@ Reference: https://huggingface.co/datasets/nvidia/Nemotron-RL-bixbench_hypothesi
 from __future__ import annotations
 
 import logging
+import random
 import shutil
 import tempfile
 from dataclasses import dataclass, field
@@ -198,3 +199,90 @@ class NemotronHypothesisDataset:
                 else:
                     shutil.copy(item, tmp)
         return tmp
+
+    def train_val_split(
+        self,
+        val_frac: float = 0.2,
+        seed: int = 42,
+    ) -> tuple["NemotronHypothesisDataset", "SubsetNemotronDataset"]:
+        """Split this dataset into a train subset and a validation subset.
+
+        Returns a *(train_ds, val_ds)* tuple where both objects expose the
+        same ``__len__`` / ``__getitem__`` / ``prepare_work_dir`` interface as
+        :class:`NemotronHypothesisDataset`.
+
+        This is used when the HuggingFace dataset only provides a ``train``
+        split (e.g. ``nvidia/Nemotron-RL-bixbench_hypothesis``).  The split
+        is deterministic given *seed* so that repeated runs are reproducible.
+
+        Args:
+            val_frac: Fraction of samples reserved for validation (default 0.2).
+            seed: Random seed for reproducibility (default 42).
+
+        Returns:
+            (train_subset, val_subset) — both are :class:`SubsetNemotronDataset`.
+        """
+        n = len(self)
+        indices = list(range(n))
+        rng = random.Random(seed)
+        rng.shuffle(indices)
+
+        n_val = max(1, int(val_frac * n))
+        val_idx = indices[:n_val]
+        train_idx = indices[n_val:]
+
+        logger.info(
+            "train_val_split: %d total → %d train, %d val (val_frac=%.2f, seed=%d)",
+            n,
+            len(train_idx),
+            len(val_idx),
+            val_frac,
+            seed,
+        )
+        return SubsetNemotronDataset(self, train_idx), SubsetNemotronDataset(self, val_idx)
+
+
+class SubsetNemotronDataset:
+    """A deterministic subset of a :class:`NemotronHypothesisDataset`.
+
+    Wraps a list of integer indices into the parent dataset so that
+    train/validation subsets share the same underlying data and capsule
+    directory without duplicating samples in memory.
+
+    Exposes the same interface as :class:`NemotronHypothesisDataset`:
+    ``__len__``, ``__getitem__``, ``__iter__``, ``prepare_work_dir``, and
+    ``capsule_data_dir``.
+    """
+
+    def __init__(
+        self,
+        base: "NemotronHypothesisDataset",
+        indices: list[int],
+    ) -> None:
+        self._base = base
+        self._indices = indices
+        # Expose capsule_data_dir so CrowDataset / callers can access it.
+        self.capsule_data_dir = base.capsule_data_dir
+
+    # ------------------------------------------------------------------
+    # Sequence interface (mirrors NemotronHypothesisDataset)
+    # ------------------------------------------------------------------
+
+    def __len__(self) -> int:
+        return len(self._indices)
+
+    def __getitem__(self, i: int) -> HypothesisSample:
+        return self._base[self._indices[i]]
+
+    def __iter__(self) -> Iterator[HypothesisSample]:
+        return (self._base[i] for i in self._indices)
+
+    # ------------------------------------------------------------------
+    # Helpers (delegate to base)
+    # ------------------------------------------------------------------
+
+    def prepare_work_dir(
+        self, sample: HypothesisSample, base_tmp: Path | None = None
+    ) -> Path:
+        """Delegate to the parent dataset's ``prepare_work_dir``."""
+        return self._base.prepare_work_dir(sample, base_tmp=base_tmp)

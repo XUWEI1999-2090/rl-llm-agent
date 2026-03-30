@@ -24,6 +24,11 @@ dataset:
   # (needed when not using the hosted DataRepo from data-analysis-crow)
   capsule_data_dir: null
   train_split: train
+  # val_split: if the HF dataset exposes a "validation" split, it is used
+  # directly.  When the split is absent (the dataset only has "train"), the
+  # training code automatically carves out 20 % of the train split as the
+  # validation set (deterministic, seed=42).  Set to null to force this
+  # behaviour even when the split exists.
   val_split: validation
 
 # ── Execution environment ──────────────────────────────────────────────────
@@ -31,18 +36,26 @@ env:
   name: CrowRLEnv
   # Docker image bundling Python + R + bioinformatics packages
   docker_image: futurehouse/bixbench:aviary-notebook-env
-  use_docker: true
+  # Set use_docker: false for Colab / environments without a Docker daemon.
+  # The notebook sandbox will run locally (no R / bioinformatics toolchain);
+  # set to true only when a Docker daemon is available.
+  use_docker: false
   max_steps: 30
 
 # ── LLM / rollout model ────────────────────────────────────────────────────
 model:
-  name: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
-  # For local vLLM server:
-  # base_url: http://localhost:10240/v1
+  # Provider prefix ("openai/") is required by LiteLLM when using an
+  # OpenAI-compatible endpoint (e.g. chatanywhere).  Without it LiteLLM
+  # raises "LLM Provider NOT provided".
+  name: openai/gpt-4o-mini
+  # OpenAI-compatible endpoint (chatanywhere).  Remove or override when using
+  # the real OpenAI API or a local vLLM server.
+  base_url: https://api.chatanywhere.tech/v1/
   #
-  # Smaller alternatives (less GPU memory):
-  # name: Qwen/Qwen2.5-7B-Instruct
-  # name: meta-llama/Meta-Llama-3.1-8B-Instruct
+  # Larger / alternative models:
+  # name: openai/gpt-4o
+  # name: nvidia_nim/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+  # base_url: http://localhost:10240/v1
 
 # ── GRPO hyperparameters ───────────────────────────────────────────────────
 grpo:
