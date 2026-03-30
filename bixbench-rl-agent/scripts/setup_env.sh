@@ -27,7 +27,7 @@ fi
 
 # ── 2. Python 虚拟环境 ──────────────────────────────────────────
 echo "[2/9] 创建虚拟环境..."
-uv venv --python 3.12 .venv
+uv venv --clear --python 3.12 .venv
 source .venv/bin/activate
 
 # ── 3. 克隆所有真实仓库 ─────────────────────────────────────────
@@ -36,6 +36,11 @@ echo "[3/9] 克隆组件仓库..."
 # FutureHouse Aviary（真实 Notebook 环境）
 if [ ! -d "aviary" ]; then
     git clone https://github.com/Future-House/aviary.git
+fi
+
+# FutureHouse ldp（agent 框架，已从 aviary 拆分）
+if [ ! -d "ldp" ]; then
+    git clone https://github.com/Future-House/ldp.git
 fi
 
 # FutureHouse data-analysis-crow（数据分析 crow 环境，Nemotron 训练用）
@@ -67,10 +72,13 @@ fi
 echo "[4/9] 安装 FutureHouse Aviary..."
 cd aviary
 # 注意：必须从源码安装，PyPI 上的 'aviary' 是 NASA 的飞机设计工具
-uv pip install -e "packages/aviary[notebook]"
-uv pip install -e "packages/aviary.notebook"
-# ldp（aviary 的 agent 框架）
-uv pip install -e "packages/ldp"
+uv pip install -e ".[notebook]"
+uv pip install -e "packages/notebook"
+cd ..
+
+echo "[?/9] 安装 FutureHouse ldp..."
+cd ldp
+uv pip install -e .
 cd ..
 
 # ── 5. 安装 data-analysis-crow ──────────────────────────────────
@@ -94,9 +102,19 @@ cd ..
 # ── 8. 安装 NeMo RL ─────────────────────────────────────────────
 echo "[8/9] 安装 NeMo RL（训练框架）..."
 cd RL
-uv sync --extra dev
-# NeMo RL 需要 PyTorch + CUDA
-uv pip install torch>=2.2.0 --index-url https://download.pytorch.org/whl/cu121
+
+git fetch --all
+git checkout e5a729cc438ea71bafa7138204f861196598a9b2
+git submodule update --init --recursive
+
+source ../.venv/bin/activate
+
+# NeMo RL uses uv dependency-groups (not extras) for dev deps
+uv sync --group dev --group build --active
+
+# 按 NeMo RL 自己的 pyproject.toml 约束安装 torch（它用 cu129 index）
+uv pip install "torch==2.10.0" "torchvision==0.25.0" --index-url https://download.pytorch.org/whl/cu129
+
 cd ..
 
 # ── 9. 安装本项目依赖 ────────────────────────────────────────────
