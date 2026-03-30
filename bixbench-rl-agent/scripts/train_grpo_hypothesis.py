@@ -200,18 +200,45 @@ async def train(config: dict) -> None:
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Dataset ──────────────────────────────────────────────────────────────
-    capsule_data_dir = config.get("dataset", {}).get("capsule_data_dir")
-    train_ds = NemotronHypothesisDataset(
-        split="train",
+    dataset_cfg = config.get("dataset", {})
+    capsule_data_dir = dataset_cfg.get("capsule_data_dir")
+    train_split = dataset_cfg.get("train_split", "train")
+    val_split_name = dataset_cfg.get("val_split", "validation")
+
+    # Try to load a dedicated validation split; fall back to an 80/20 split
+    # from the train set when the HF dataset only exposes a "train" split
+    # (e.g. nvidia/Nemotron-RL-bixbench_hypothesis in some releases).
+    full_train_ds = NemotronHypothesisDataset(
+        split=train_split,
         capsule_data_dir=capsule_data_dir,
     )
-    val_ds = NemotronHypothesisDataset(
-        split="validation",
-        capsule_data_dir=capsule_data_dir,
-    )
-    logger.info(
-        "Dataset: %d train, %d val samples", len(train_ds), len(val_ds)
-    )
+    try:
+        val_ds = NemotronHypothesisDataset(
+            split=val_split_name,
+            capsule_data_dir=capsule_data_dir,
+        )
+        if len(val_ds) == 0:
+            raise ValueError("Validation split loaded but is empty.")
+        train_ds = full_train_ds
+        logger.info(
+            "Dataset: %d train, %d val samples (HF split '%s')",
+            len(train_ds), len(val_ds), val_split_name,
+        )
+    except (ValueError, KeyError, RuntimeError, Exception) as exc:
+        # Narrowing note: datasets raises ValueError for unknown splits; we
+        # catch broadly so any transient HF error also triggers the fallback.
+        # KeyboardInterrupt / SystemExit are BaseException subclasses and are
+        # never caught here.
+        logger.warning(
+            "Could not load '%s' split (%s). "
+            "Falling back to 80/20 split of the '%s' split (seed=42).",
+            val_split_name, exc, train_split,
+        )
+        train_ds, val_ds = full_train_ds.train_val_split(val_frac=0.2, seed=42)
+        logger.info(
+            "Dataset: %d train, %d val samples (80/20 split from '%s')",
+            len(train_ds), len(val_ds), train_split,
+        )
 
     # ── Environment ──────────────────────────────────────────────────────────
     use_docker = config.get("env", {}).get("use_docker", True)
@@ -359,11 +386,30 @@ def build_verifiers_env(config: dict):
     from src.verifiers.rubric import StepRubric
 
     rubric_obj = StepRubric(protocol=HYPOTHESIS_PROTOCOL)
-    capsule_data_dir = config.get("dataset", {}).get("capsule_data_dir")
-    train_ds = NemotronHypothesisDataset(split="train", capsule_data_dir=capsule_data_dir)
-    val_ds = NemotronHypothesisDataset(split="validation", capsule_data_dir=capsule_data_dir)
+    dataset_cfg = config.get("dataset", {})
+    capsule_data_dir = dataset_cfg.get("capsule_data_dir")
+    train_split = dataset_cfg.get("train_split", "train")
+    val_split_name = dataset_cfg.get("val_split", "validation")
 
-    def to_hf(ds: NemotronHypothesisDataset) -> HFDataset:
+    # Load train; try dedicated val split, fall back to 80/20 if unavailable.
+    full_train_ds = NemotronHypothesisDataset(split=train_split, capsule_data_dir=capsule_data_dir)
+    try:
+        val_ds = NemotronHypothesisDataset(split=val_split_name, capsule_data_dir=capsule_data_dir)
+        if len(val_ds) == 0:
+            raise ValueError("Validation split loaded but is empty.")
+        train_ds = full_train_ds
+    except (ValueError, KeyError, RuntimeError, Exception) as exc:
+        # datasets raises ValueError for unknown splits; we catch broadly so
+        # any transient HF error also triggers the fallback.
+        # KeyboardInterrupt / SystemExit are BaseException and never caught here.
+        logger.warning(
+            "build_verifiers_env: could not load '%s' split (%s). "
+            "Falling back to 80/20 split of '%s' (seed=42).",
+            val_split_name, exc, train_split,
+        )
+        train_ds, val_ds = full_train_ds.train_val_split(val_frac=0.2, seed=42)
+
+    def to_hf(ds: "NemotronHypothesisDataset | SubsetNemotronDataset") -> HFDataset:
         return HFDataset.from_list(
             [
                 {
